@@ -283,17 +283,19 @@ export default function App() {
   // --- TRẠNG THÁI MODAL SHARING & CÀI ĐẶT APP ---
   const [showShareModal, setShowShareModal] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [customAppUrl, setCustomAppUrl] = useState('https://link-app-cua-ban.netlify.app');
+  const [customAppUrl, setCustomAppUrl] = useState('https://canvts-star.github.io/biomaster-thpt/');
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallGuide, setShowInstallGuide] = useState(false);
 
-  // Khởi tạo URL an toàn: Kiểm tra nếu link không phải là iframe xem trước thì mới dùng location.origin
+  // Khởi tạo URL an toàn: Tự động nhận diện nếu chạy trên GitHub Pages của Thầy Can
   useEffect(() => {
     try {
       if (typeof window !== 'undefined' && window.location) {
         const href = window.location.href || '';
-        // Chỉ tự động bắt link khi chạy độc lập ngoài internet (không dính sandbox/preview/iframe)
-        if (href.startsWith('http') && !href.includes('preview') && !href.includes('iframe') && !href.includes('usercontent')) {
+        // Ưu tiên giữ đường link GitHub Pages của Thầy Can nếu chạy độc lập
+        if (href.includes('canvts-star.github.io')) {
+          setCustomAppUrl('https://canvts-star.github.io/biomaster-thpt/');
+        } else if (href.startsWith('http') && !href.includes('preview') && !href.includes('iframe') && !href.includes('usercontent')) {
           setCustomAppUrl(window.location.origin + window.location.pathname);
         }
       }
@@ -308,7 +310,7 @@ export default function App() {
 
   const handleCopyLink = () => {
     try {
-      const textToCopy = customAppUrl.trim() || 'https://biomaster-thpt.netlify.app';
+      const textToCopy = customAppUrl.trim() || 'https://canvts-star.github.io/biomaster-thpt/';
       if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(textToCopy);
       } else {
@@ -480,7 +482,7 @@ export default function App() {
                 
                 <div className="p-3 bg-white border border-slate-200 inline-block rounded-2xl shadow-sm">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(customAppUrl.trim() || 'https://biomaster-thpt.netlify.app')}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(customAppUrl.trim() || 'https://canvts-star.github.io/biomaster-thpt/')}`}
                     alt="Mã QR Truy Cập BioMaster THPT"
                     className="w-40 h-40 mx-auto rounded-lg object-contain"
                   />
