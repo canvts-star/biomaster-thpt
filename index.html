@@ -1,0 +1,2125 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { 
+  BookOpen, Sparkles, UserCheck, Printer, Calculator, Dna, 
+  Share2, Zap, Check, Copy, X, QrCode, CheckCircle2, XCircle, 
+  HelpCircle, Settings2, RefreshCw, Trash2, Plus, Edit3, Save, RotateCw, Search,
+  Upload, FileText, Download, Database
+} from 'lucide-react';
+
+// --- HÀM GỌI AI GEMINI ĐỂ TẠO ĐỀ THI TỰ ĐỘNG ---
+async function generateMultiSubjectExamAI(subject, topic, grade, mcqCount = 5, tfCount = 2, saCount = 2) {
+  const apiKey = "";
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+  const promptText = `Bạn là chuyên gia biên soạn đề thi THPT môn ${subject} theo Chương trình GDPT 2018 (SGK Kết nối tri thức/Cánh diều/Chân trời sáng tạo).
+Hãy tạo bộ câu hỏi đề thi môn ${subject}, Khối lớp ${grade}, Chủ đề/Bài học: "${topic}".
+Cấu trúc yêu cầu chính xác:
+1. Đúng ${mcqCount} câu hỏi Trắc nghiệm 4 lựa chọn (type: "mcq", question: string, options: [4 phương án], correct: index 0-3, explanation: string).
+2. Đúng ${tfCount} câu hỏi Trắc nghiệm Đúng/Sai 4 ý (type: "tf", question: string, items: [{id: 'a', statement: string, correct: boolean}, {id: 'b', statement: string, correct: boolean}, {id: 'c', statement: string, correct: boolean}, {id: 'd', statement: string, correct: boolean}], explanation: string).
+3. Đúng ${saCount} câu hỏi Trả lời ngắn (type: "sa", question: string, correctAnswer: string, explanation: string).
+
+Trả về định dạng duy nhất là một mảng JSON Array các object câu hỏi (không chứa text dư thừa hay ký tự markdown không cần thiết).`;
+
+  try {
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: promptText }] }]
+      })
+    });
+    const data = await res.json();
+    const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const cleanJsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const parsed = JSON.parse(cleanJsonText);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("AI Multi-subject Exam Generation Error:", err);
+    return null;
+  }
+}
+
+// --- BAN ĐẦU: MÔN HỌC & NGÂN HÀNG CÂU HỎI ĐA MÔN (SINH HỌC, CÔNG NGHỆ, TIẾNG ANH) ---
+const INITIAL_SUBJECTS = [
+  { id: 'sub_bio', name: 'Sinh học', icon: '🧬', code: 'BIO' },
+  { id: 'sub_tech', name: 'Công nghệ nông nghiệp', icon: '🌾', code: 'TECH' },
+  { id: 'sub_eng', name: 'Tiếng Anh', icon: '🌐', code: 'ENG' }
+];
+
+// --- DANH SÁCH CHỦ ĐỀ CHUẨN SGK GDPT 2018 THEO MÔN HỌC & KHỐI LỚP (10, 11, 12) ---
+const SUBJECT_GRADE_TOPICS = {
+  sub_bio: {
+    '10': [
+      'Tổng hợp kiến thức Sinh học Lớp 10',
+      'Phần 1: Giới thiệu chung về thế giới sống & Các cấp độ tổ chức sống',
+      'Phần 2: Sinh học tế bào (Thành phần hóa học, Cấu trúc tế bào, Trao đổi chất & Chuyển hóa năng lượng)',
+      'Phần 2: Chu kỳ tế bào, Phân bào (Nguyên phân, Giảm phân) và Công nghệ tế bào',
+      'Phần 3: Sinh học vi sinh vật (Chuyển hóa vật chất, Sinh trưởng & Động lực vi sinh vật)',
+      'Phần 3: Virus và các ứng dụng trong y học, nông nghiệp'
+    ],
+    '11': [
+      'Tổng hợp kiến thức Sinh học Lớp 11',
+      'Chủ đề 1: Trao đổi chất và chuyển hóa năng lượng ở thực vật (Hấp thụ nước, khoáng, Quang hợp, Hô hấp)',
+      'Chủ đề 1: Trao đổi chất và chuyển hóa năng lượng ở động vật (Tiêu hóa, Hô hấp, Tuần hoàn, Bài tiết)',
+      'Chủ đề 2: Cảm ứng ở sinh vật (Hướng động, Ứng động ở thực vật & Xung thần kinh, Cung phản xạ ở động vật)',
+      'Chủ đề 3: Sinh trưởng và phát triển ở sinh vật (Biến thái, Hormone sinh trưởng)',
+      'Chủ đề 4: Sinh sản ở sinh vật (Sinh sản vô tính, Sinh sản hữu tính ở thực vật & động vật)'
+    ],
+    '12': [
+      'Tổng hợp kiến thức Sinh học Lớp 12',
+      'Chủ đề 1: Cơ chế di truyền và biến dị (DNA, RNA, Tái bản, Phiên mã, Dịch mã, Đột biến gen/NST)',
+      'Chủ đề 2: Tính quy luật của hiện tượng di truyền (Mendel, Morgan - Liên kết & Hoán vị gen, Di truyền giới tính)',
+      'Chủ đề 3: Di truyền học quần thể (Cân bằng Hardy-Weinberg) & Di truyền học người',
+      'Chủ đề 4: Ứng dụng di truyền học (Chọn giống sinh vật & Công nghệ gen)',
+      'Chủ đề 5: Bằng chứng và cơ chế tiến hóa (Thuyết tiến hóa hiện đại, Loài & Quá trình hình thành loài)',
+      'Chủ đề 6: Sinh thái học và Môi trường (Quần thể, Quần xã, Hệ sinh thái, Chu trình sinh địa hóa & Bảo tồn)'
+    ]
+  },
+  sub_tech: {
+    '10': [
+      'Tổng hợp kiến thức Công nghệ Nông nghiệp Lớp 10',
+      'Bài 1: Giới thiệu chung về Trồng trọt & Vai trò của nông nghiệp trong nền kinh tế',
+      'Bài 2: Đất trồng & Tính chất của đất (Độ pH, Độ phì nhiêu của đất)',
+      'Bài 3: Phân bón cây trồng (Phân hóa học, Phân hữu cơ, Phân bón vi sinh)',
+      'Bài 4: Giống cây trồng & Các phương pháp chọn tạo giống cây trồng',
+      'Bài 5: Nhân giống cây trồng (Giâm cành, Chiết cành, Ghép cành, Nuôi cấy mô tế bào)'
+    ],
+    '11': [
+      'Tổng hợp kiến thức Công nghệ Nông nghiệp Lớp 11',
+      'Bài 1: Tác hại của sâu, bệnh hại đối với cây trồng',
+      'Bài 2: Các biện pháp phòng trừ sâu, bệnh hại (Biện pháp cơ giới, Hóa học, Sinh học / IPM)',
+      'Bài 3: Ứng dụng công nghệ cao trong phòng trừ sâu bệnh hại',
+      'Bài 4: Trồng trọt công nghệ cao (Mô hình Nhà kính, Nhà lưới, Thủy canh, Khí canh)',
+      'Bài 5: Lập kế hoạch & Kỹ thuật trồng trọt cho một số nhóm cây trồng chủ lực'
+    ],
+    '12': [
+      'Tổng hợp kiến thức Công nghệ Nông nghiệp Lớp 12',
+      'Bài 1: Bảo quản nông sản sau thu hoạch (Bảo quản lạnh, Chiếu xạ, Sấy khô)',
+      'Bài 2: Chế biến nông sản (Chế biến lương thực, Rau củ quả, Đồ uống)',
+      'Bài 3: Nông nghiệp công nghệ cao 4.0 & Nông nghiệp thông minh (IoT, Drones, AI trong nông nghiệp)',
+      'Bài 4: Nông nghiệp bền vững & Bảo vệ môi trường sinh thái nông thôn',
+      'Bài 5: Đổi mới sáng tạo & Dự án khởi nghiệp kinh doanh sản phẩm nông nghiệp'
+    ]
+  },
+  sub_eng: {
+    '10': [
+      'Tổng hợp kiến thức Tiếng Anh Lớp 10',
+      'Unit 1: Family Life (Grammar: Present Simple vs. Present Continuous)',
+      'Unit 2: Humans and The Environment (Grammar: Future with Will & Be going to)',
+      'Unit 3: Music (Grammar: Compound Sentences, To-infinitives & Bare infinitives)',
+      'Unit 4: For A Better Community (Grammar: Past Simple vs. Past Continuous)',
+      'Unit 5: Inventions (Grammar: Present Perfect, Gerunds & Infinitives)',
+      'Chuyên đề Ngữ pháp Lớp 10: Thì cơ bản, Từ vựng theo chủ điểm'
+    ],
+    '11': [
+      'Tổng hợp kiến thức Tiếng Anh Lớp 11',
+      'Unit 1: A Long and Healthy Life (Grammar: Past Simple vs. Present Perfect)',
+      'Unit 2: The Generation Gap (Grammar: Modal Verbs - Must, Have to, Should)',
+      'Unit 3: Cities of the Future (Grammar: Stative verbs, Linking verbs)',
+      'Unit 4: ASEAN and Viet Nam (Grammar: Gerunds as Subjects & Objects)',
+      'Unit 5: Global Warming (Grammar: Participle Clauses - Present & Past Participles)',
+      'Chuyên đề Ngữ pháp Lớp 11: Câu điều kiện, Động từ khuyết thiếu, Mệnh đề phân từ'
+    ],
+    '12': [
+      'Tổng hợp kiến thức Tiếng Anh Lớp 12',
+      'Unit 1: Life Stories of International Figures (Grammar: Past Simple vs. Past Continuous)',
+      'Unit 2: A Green Future & Sustainable Living (Grammar: Verbs followed by To-V/V-ing)',
+      'Unit 3: The Green Movement & Urbanisation (Grammar: Subjunctive mood)',
+      'Unit 4: Artificial Intelligence in Modern Life (Grammar: Active & Passive Causatives)',
+      'Unit 5: Cultural Diversity & World Heritage Sites (Grammar: Participial Clauses)',
+      'Chuyên đề Ôn thi THPT: Ngữ pháp trọng tâm, Từ vựng Đồng/Trái nghĩa, Kỹ năng Đọc hiểu'
+    ]
+  }
+};
+
+const INITIAL_QUESTIONS = [
+  // Môn Sinh học
+  {
+    id: 101,
+    subjectId: 'sub_bio',
+    topic: 'Di truyền học',
+    type: 'mcq',
+    question: 'Trong quá trình phiên mã, enzyme nào sau đây đóng vai trò chính xúc tác cho quá trình tổng hợp RNA?',
+    options: ['RNA polymerase', 'DNA polymerase', 'Ligase', 'Helicase'],
+    correct: 0,
+    explanation: 'Enzyme RNA polymerase bám vào vùng điều hòa làm gen tháo xoắn và tổng hợp mạch RNA theo nguyên tắc bổ sung.'
+  },
+  {
+    id: 102,
+    subjectId: 'sub_bio',
+    topic: 'Di truyền học',
+    type: 'tf',
+    question: 'Cho các phát biểu sau về mã di truyền:',
+    items: [
+      { id: 'a', statement: 'Mã di truyền có tính thoái hóa, nghĩa là nhiều bộ ba cùng mã hóa cho một axit amin.', correct: true },
+      { id: 'b', statement: 'Mã di truyền có tính đặc hiệu, nghĩa là một bộ ba chỉ mã hóa cho một loại axit amin.', correct: true },
+      { id: 'c', statement: 'Bộ ba UAA, UAG, UGA là các bộ ba mã hóa cho axit amin Mở đầu.', correct: false },
+      { id: 'd', statement: 'Tất cả các loài sinh vật đều sử dụng chung một bộ mã di truyền (trừ vài ngoại lệ).', correct: true }
+    ],
+    explanation: 'Ý c sai vì UAA, UAG, UGA là 3 bộ ba kết thúc không mã hóa cho axit amin.'
+  },
+  {
+    id: 103,
+    subjectId: 'sub_bio',
+    topic: 'Di truyền học',
+    type: 'sa',
+    question: 'Một gen có 1200 cặp nucleotide. Số lượng bộ ba mã hóa trên phân tử mRNA do gen này tổng hợp (không kể bộ ba kết thúc) là bao nhiêu?',
+    correctAnswer: '399',
+    explanation: 'Tổng số bộ ba = 1200 / 3 = 400 bộ ba. Trừ 1 bộ ba kết thúc không mã hóa axit amin, còn lại 399 bộ ba.'
+  },
+
+  // Môn Công nghệ
+  {
+    id: 201,
+    subjectId: 'sub_tech',
+    topic: 'Công nghệ kĩ thuật điện',
+    type: 'mcq',
+    question: 'Lưới điện quốc gia gồm có các thành phần chính nào sau đây?',
+    options: ['Đường dây truyền tải và các trạm biến áp', 'Nhà máy điện và đường dây truyền tải', 'Trạm phát điện và tải tiêu thụ', 'Máy phát điện và thiết bị đóng cắt'],
+    correct: 0,
+    explanation: 'Lưới điện quốc gia bao gồm đường dây truyền tải điện và các trạm biến áp liên kết với nhau.'
+  },
+  {
+    id: 202,
+    subjectId: 'sub_tech',
+    topic: 'Công nghệ kĩ thuật điện',
+    type: 'tf',
+    question: 'Cho các nhận định về an toàn điện và mạng điện hạ áp trong gia đình:',
+    items: [
+      { id: 'a', statement: 'Aptomat (MCB) có chức năng tự động ngắt mạch khi có sự cố ngắn mạch hoặc quá tải.', correct: true },
+      { id: 'b', statement: 'Dây nối đất (PE) có tác dụng bảo vệ an toàn cho người dùng khi thiết bị bị rò điện.', correct: true },
+      { id: 'c', statement: 'Cầu chì được mắc nối tiếp trên dây trung tính (dây nguội) của mạch điện.', correct: false },
+      { id: 'd', statement: 'Điện áp định mức của mạng điện sinh hoạt ở Việt Nam là 220V.', correct: true }
+    ],
+    explanation: 'Ý c sai vì thiết bị bảo vệ như cầu chì, aptomat luôn phải được mắc trên dây nóng (dây pha).'
+  },
+  {
+    id: 203,
+    subjectId: 'sub_tech',
+    topic: 'Công nghệ kĩ thuật điện',
+    type: 'sa',
+    question: 'Điện áp hiệu dụng của lưới điện sinh hoạt gia đình tại Việt Nam có giá trị bằng bao nhiêu Volt?',
+    correctAnswer: '220',
+    explanation: 'Lưới điện hạ áp dùng cho sinh hoạt tại Việt Nam là 220V (tần số 50Hz).'
+  },
+
+  // Môn Tiếng Anh
+  {
+    id: 301,
+    subjectId: 'sub_eng',
+    topic: 'Grammar & Vocabulary',
+    type: 'mcq',
+    question: 'If I ________ enough money, I would buy a new laptop for my online classes.',
+    options: ['had', 'have', 'will have', 'have had'],
+    correct: 0,
+    explanation: 'Câu điều kiện loại 2 (Conditional type 2): Mệnh đề If dùng thì Quá khứ đơn (had).'
+  },
+  {
+    id: 302,
+    subjectId: 'sub_eng',
+    topic: 'Reading & Grammar',
+    type: 'tf',
+    question: 'Read the statement about English grammar rules:',
+    items: [
+      { id: 'a', statement: '"Although" is followed by a clause containing a subject and a verb.', correct: true },
+      { id: 'b', statement: '"In spite of" is followed by a noun phrase or a V-ing.', correct: true },
+      { id: 'c', statement: '"Because of" is followed by a complete clause with S + V.', correct: false },
+      { id: 'd', statement: 'Present perfect tense is used for actions completed at a specific time in the past.', correct: false }
+    ],
+    explanation: 'c sai vì "Because of" + N/V-ing. d sai vì thì quá khứ đơn mới dùng cho thời điểm xác định trong quá khứ.'
+  },
+  {
+    id: 303,
+    subjectId: 'sub_eng',
+    topic: 'Vocabulary & Word Form',
+    type: 'sa',
+    question: 'Supply the correct form of the word in brackets: "Solar energy is an eco-friendly and __________ source of power." (RENEW)',
+    correctAnswer: 'renewable',
+    explanation: 'Từ cần điền đứng trước danh từ "source" là một tính từ: renewable (có thể tái tạo).'
+  }
+];
+
+const INITIAL_FLASHCARDS = [
+  { id: 1, subjectId: 'sub_bio', term: 'Allele (Alen)', definition: 'Các trạng thái biểu hiện khác nhau của cùng một gen trên NST tương đồng.' },
+  { id: 2, subjectId: 'sub_bio', term: 'Codon (Bộ ba mã hóa)', definition: 'Tổ hợp 3 nucleotide trên mRNA mã hóa cho 1 amino acid hoặc tín hiệu kết thúc.' },
+  { id: 3, subjectId: 'sub_tech', term: 'Aptomat (MCB)', definition: 'Thiết bị tự động cắt mạch điện khi xảy ra sự cố quá tải hoặc ngắn mạch.' },
+  { id: 4, subjectId: 'sub_tech', term: 'Trạm Biến Áp', definition: 'Thiết bị điện tĩnh dùng để biến đổi điện áp của dòng điện xoay chiều mà giữ nguyên tần số.' },
+  { id: 5, subjectId: 'sub_eng', term: 'Conditional Type 2', definition: 'If + S + V2/ed, S + would/could + V-bare (Diễn tả điều kiện không có thực ở hiện tại).' }
+];
+
+const GENETIC_CODE_TABLE = [
+  { amino: 'Phe (Phenylalanine)', codons: ['UUU', 'UUC'] },
+  { amino: 'Leu (Leucine)', codons: ['UUA', 'UUG', 'CUU', 'CUC', 'CUA', 'CUG'] },
+  { amino: 'Ile (Isoleucine)', codons: ['AUU', 'AUC', 'AUA'] },
+  { amino: 'Met (Mở đầu)', codons: ['AUG'] },
+  { amino: 'Val (Valine)', codons: ['GUU', 'GUC', 'GUA', 'GUG'] },
+  { amino: 'Ser (Serine)', codons: ['UCU', 'UCC', 'UCA', 'UCG', 'AGU', 'AGC'] },
+  { amino: 'Pro (Proline)', codons: ['CCU', 'CCC', 'CCA', 'CCG'] },
+  { amino: 'Thr (Threonine)', codons: ['ACU', 'ACC', 'ACA', 'ACG'] },
+  { amino: 'Ala (Alanine)', codons: ['GCU', 'GCC', 'GCA', 'GCG'] },
+  { amino: 'Tyr (Tyrosine)', codons: ['UAU', 'UAC'] },
+  { amino: 'His (Histidine)', codons: ['CAU', 'CAC'] },
+  { amino: 'Gln (Glutamine)', codons: ['CAA', 'CAG'] },
+  { amino: 'Asn (Asparagine)', codons: ['AAU', 'AAC'] },
+  { amino: 'Lys (Lysine)', codons: ['AAA', 'AAG'] },
+  { amino: 'Asp (Aspartic acid)', codons: ['GAU', 'GAC'] },
+  { amino: 'Glu (Glutamic acid)', codons: ['GAA', 'GAG'] },
+  { amino: 'Cys (Cysteine)', codons: ['UGU', 'UGC'] },
+  { amino: 'Trp (Tryptophan)', codons: ['UGG'] },
+  { amino: 'Arg (Arginine)', codons: ['CGU', 'CGC', 'CGA', 'CGG', 'AGA', 'AGG'] },
+  { amino: 'Gly (Glycine)', codons: ['GGU', 'GGC', 'GGA', 'GGG'] },
+  { amino: 'Bộ ba KẾT THÚC (Stop)', codons: ['UAA', 'UAG', 'UGA'] }
+];
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('quiz');
+  
+  // --- QUẢN LÝ DANH MỤC MÔN HỌC & CÂU HỎI ---
+  const [subjects, setSubjects] = useState(INITIAL_SUBJECTS);
+  const [selectedSubjectId, setSelectedSubjectId] = useState('sub_bio');
+  const [questions, setQuestions] = useState(INITIAL_QUESTIONS);
+  const [flashcards, setFlashcards] = useState(INITIAL_FLASHCARDS);
+
+  // --- TRẠNG THÁI MODAL SHARING & CÀI ĐẶT APP ---
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [customAppUrl, setCustomAppUrl] = useState('https://link-app-cua-ban.netlify.app');
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+
+  // Khởi tạo URL an toàn: Kiểm tra nếu link không phải là iframe xem trước thì mới dùng location.origin
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.location) {
+        const href = window.location.href || '';
+        // Chỉ tự động bắt link khi chạy độc lập ngoài internet (không dính sandbox/preview/iframe)
+        if (href.startsWith('http') && !href.includes('preview') && !href.includes('iframe') && !href.includes('usercontent')) {
+          setCustomAppUrl(window.location.origin + window.location.pathname);
+        }
+      }
+    } catch (e) {
+      console.warn("Location check error:", e);
+    }
+  }, []);
+
+  const currentSubjectObj = useMemo(() => {
+    return subjects.find(s => s.id === selectedSubjectId) || subjects[0];
+  }, [subjects, selectedSubjectId]);
+
+  const handleCopyLink = () => {
+    try {
+      const textToCopy = customAppUrl.trim() || 'https://biomaster-thpt.netlify.app';
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(textToCopy);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = textToCopy;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch(err) {
+      console.error("Copy error:", err);
+    }
+  };
+
+  const [customExamQuestions, setCustomExamQuestions] = useState([]);
+  const [customExamSubjectName, setCustomExamSubjectName] = useState('Sinh học');
+  const [quizDirectQuestions, setQuizDirectQuestions] = useState(null);
+  const [isTeacherAuthenticated, setIsTeacherAuthenticated] = useState(false);
+  const [teacherPin, setTeacherPin] = useState('123456');
+  const [studentSubmissions, setStudentSubmissions] = useState([]);
+
+  const handleLoadCustomExamToExporter = (generatedQuestions, subName) => {
+    setCustomExamQuestions(generatedQuestions);
+    setCustomExamSubjectName(subName);
+    setActiveTab('exporter');
+  };
+
+  const handlePlayExamDirectly = (generatedQuestions, subId) => {
+    setSelectedSubjectId(subId);
+    setQuizDirectQuestions(generatedQuestions);
+    setActiveTab('quiz');
+  };
+
+  const handleAddSubmission = (submission) => {
+    setStudentSubmissions(prev => [submission, ...prev]);
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800">
+      {/* HEADER BAR */}
+      <header className="bg-slate-900 text-white shadow-md sticky top-0 z-50 print:hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setActiveTab('quiz')}>
+            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center shadow-lg text-white">
+              <Dna className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+                <span>BioMaster THPT</span>
+                <span className="text-[10px] bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded font-mono uppercase font-extrabold">v3.5</span>
+              </h1>
+              <p className="text-[11px] text-emerald-400 font-semibold hidden sm:block">
+                Tác giả: Thầy Trương Trung Can (Tổ Sinh - Công nghệ, THPT Võ Thị Sáu)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
+              className="bg-slate-800 text-white border border-slate-700 text-xs font-bold rounded-xl px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              {subjects.map(s => (
+                <option key={s.id} value={s.id}>{s.icon} {s.name}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => setShowShareModal(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 p-2 rounded-xl text-xs font-bold transition flex items-center gap-1"
+              title="Lấy Link & QR Code"
+            >
+              <Share2 className="w-4 h-4" />
+              <span className="hidden md:inline">Link &amp; QR</span>
+            </button>
+          </div>
+        </div>
+
+        {/* NAVIGATION TABS */}
+        <div className="bg-slate-800 border-t border-slate-700 px-4">
+          <div className="max-w-7xl mx-auto flex space-x-1 sm:space-x-4 overflow-x-auto text-xs font-bold py-1.5 scrollbar-none">
+            <button
+              onClick={() => setActiveTab('quiz')}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'quiz' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Luyện Thi ({currentSubjectObj.name})</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('teacher')}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'teacher' ? 'bg-amber-400 text-slate-900 shadow' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}
+            >
+              <Sparkles className="w-3.5 h-3.5 fill-current" />
+              <span>Góc Giáo Viên (Soạn Đề AI / Ma Trận)</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('exporter')}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'exporter' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Xuất Đề PDF / In Đề</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('tools')}
+              className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap flex items-center gap-1.5 ${activeTab === 'tools' ? 'bg-emerald-600 text-white shadow' : 'text-slate-300 hover:text-white hover:bg-slate-700'}`}
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span>Tiện Ích Học Tập &amp; Mendel</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* MODAL POPUP CHIA SẺ LINK & QR CODE */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative border border-slate-200">
+            <button 
+              onClick={() => setShowShareModal(false)} 
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-800 rounded-2xl flex items-center justify-center mx-auto">
+                <Share2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Chia Sẻ Đường Link App &amp; Mã QR</h3>
+              <p className="text-xs text-slate-500">Cấu hình đúng đường dẫn web đã deploy của bạn để Học sinh quét mã chuẩn 100%</p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Nhập/Dán Đường Link Trang Web Thực Tế Của Bạn:
+                </label>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={customAppUrl}
+                    onChange={(e) => setCustomAppUrl(e.target.value)}
+                    placeholder="Dán link Netlify/Vercel của bạn vào đây..."
+                    className="flex-1 p-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 font-semibold"
+                  />
+                  <button
+                    onClick={handleCopyLink}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm shrink-0"
+                  >
+                    {copiedLink ? <Check className="w-4 h-4 text-amber-300" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedLink ? 'Đã chép' : 'Sao Chép'}</span>
+                  </button>
+                </div>
+
+                <p className="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200 mt-2 leading-relaxed">
+                  💡 <b>Hướng dẫn cho Giáo viên:</b> Mỗi khi đưa app lên mạng (qua Netlify Drop hoặc Vercel), dịch vụ sẽ cấp cho bạn 1 đường link riêng biệt. Hãy copy đường link riêng đó dán vào ô trên, mã QR bên dưới sẽ tự động chuyển thành mã chuẩn để học sinh quét vào đúng app của bạn!
+                </p>
+              </div>
+
+              <div className="border-t border-slate-100 pt-3 text-center space-y-2">
+                <p className="text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5">
+                  <QrCode className="w-4 h-4 text-emerald-600" />
+                  <span>Mã QR Code Truy Cập Trực Tiếp:</span>
+                </p>
+                
+                <div className="p-3 bg-white border border-slate-200 inline-block rounded-2xl shadow-sm">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(customAppUrl.trim() || 'https://biomaster-thpt.netlify.app')}`}
+                    alt="Mã QR Truy Cập BioMaster THPT"
+                    className="w-40 h-40 mx-auto rounded-lg object-contain"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowShareModal(false)}
+              className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs rounded-xl shadow transition"
+            >
+              Đóng Cửa Sổ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP HƯỚNG DẪN CÀI ICON APP */}
+      {showInstallGuide && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative border border-emerald-100">
+            <button onClick={() => setShowInstallGuide(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-2">
+              <div className="w-16 h-16 bg-emerald-600 text-white rounded-2xl flex items-center justify-center mx-auto shadow-lg">
+                <Dna className="w-9 h-9" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-800">Tạo Icon Trên Màn Hình</h3>
+              <p className="text-xs text-emerald-700 font-semibold">BioMaster THPT - Thầy Trương Trung Can</p>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs space-y-3 text-slate-700">
+              <p className="font-bold text-emerald-800 text-sm">Hướng dẫn đưa ứng dụng ra Màn hình chính:</p>
+              <div className="space-y-2">
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                  <p className="font-bold text-slate-800">📱 iPhone/iPad (Safari):</p>
+                  <p className="mt-0.5 text-slate-600">Nhấn <b>Chia sẻ</b> (mũi tên lên) → Chọn <b>"Thêm vào Màn hình chính"</b>.</p>
+                </div>
+                <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                  <p className="font-bold text-slate-800">🤖 Android (Chrome):</p>
+                  <p className="mt-0.5 text-slate-600">Nhấn <b>3 chấm ⋮</b> → Chọn <b>"Thêm vào Màn hình chính"</b>.</p>
+                </div>
+              </div>
+            </div>
+
+            <button onClick={() => setShowInstallGuide(false)} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow">
+              Đã Hiểu
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MAIN CONTAINER */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 print:p-0 print:max-w-none">
+        {activeTab === 'quiz' && (
+          <QuizSection 
+            questions={questions}
+            subjectObj={currentSubjectObj}
+            directQuestions={quizDirectQuestions}
+            onClearDirectQuestions={() => setQuizDirectQuestions(null)}
+            onSaveSubmission={handleAddSubmission}
+          />
+        )}
+
+        {activeTab === 'teacher' && (
+          <TeacherSection 
+            subjects={subjects}
+            setSubjects={setSubjects}
+            selectedSubjectId={selectedSubjectId}
+            setSelectedSubjectId={setSelectedSubjectId}
+            questions={questions} 
+            setQuestions={setQuestions}
+            flashcards={flashcards}
+            setFlashcards={setFlashcards}
+            isAuthenticated={isTeacherAuthenticated}
+            setIsAuthenticated={setIsTeacherAuthenticated}
+            teacherPin={teacherPin}
+            setTeacherPin={setTeacherPin}
+            submissions={studentSubmissions}
+            setSubmissions={setStudentSubmissions}
+            onLoadExamToExporter={handleLoadCustomExamToExporter}
+            onPlayExamDirectly={handlePlayExamDirectly}
+          />
+        )}
+
+        {activeTab === 'exporter' && (
+          <ExporterSection 
+            questions={customExamQuestions.length > 0 ? customExamQuestions : questions.filter(q => q.subjectId === selectedSubjectId)} 
+            subjectName={customExamQuestions.length > 0 ? customExamSubjectName : currentSubjectObj.name}
+          />
+        )}
+
+        {activeTab === 'tools' && (
+          <ToolsSection 
+            subjects={subjects}
+            selectedSubjectId={selectedSubjectId}
+            flashcards={flashcards}
+          />
+        )}
+      </main>
+
+      <footer className="bg-slate-800 text-slate-400 py-4 text-center text-sm border-t border-slate-700 print:hidden">
+        <p>© 2026 BioMaster THPT - Công cụ Ôn tập &amp; Giảng dạy Đa năng độc quyền của <b>Thầy Trương Trung Can (Tổ Sinh - Công nghệ, THPT Võ Thị Sáu)</b></p>
+      </footer>
+    </div>
+  );
+}
+
+// ==========================================
+// 1. SECTION: LUYỆN THI TRẮC NGHIỆM ĐA MÔN (3 DẠNG CÂU HỎI)
+// ==========================================
+function QuizSection({ questions = [], subjectObj, directQuestions, onClearDirectQuestions, onSaveSubmission }) {
+  const [studentName, setStudentName] = useState('');
+  const [studentClass, setStudentClass] = useState('12A1');
+  const [isExamStarted, setIsExamStarted] = useState(false);
+  const [isExamSubmitted, setIsExamSubmitted] = useState(false);
+
+  // Danh sách câu hỏi đang làm
+  const activeQuestions = useMemo(() => {
+    if (directQuestions && directQuestions.length > 0) {
+      return directQuestions;
+    }
+    return questions.filter(q => q.subjectId === subjectObj.id);
+  }, [directQuestions, questions, subjectObj]);
+
+  // Lưu đáp án học sinh
+  // mcq: { [qId]: optionIndex }
+  // tf: { [qId]: { a: true/false, b: true/false, ... } }
+  // sa: { [qId]: string }
+  const [answers, setAnswers] = useState({});
+
+  // Đồng hồ đếm ngược
+  const [timeLeft, setTimeLeft] = useState(45 * 60);
+
+  useEffect(() => {
+    let timer;
+    if (isExamStarted && !isExamSubmitted && timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isExamStarted, isExamSubmitted, timeLeft]);
+
+  const handleStartExam = () => {
+    if (!studentName.trim()) return;
+    setIsExamStarted(true);
+    setIsExamSubmitted(false);
+    setAnswers({});
+    setTimeLeft(45 * 60);
+  };
+
+  const handleMCQSelect = (qId, optionIdx) => {
+    if (isExamSubmitted) return;
+    setAnswers(prev => ({ ...prev, [qId]: optionIdx }));
+  };
+
+  const handleTFSelect = (qId, itemId, value) => {
+    if (isExamSubmitted) return;
+    setAnswers(prev => ({
+      ...prev,
+      [qId]: {
+        ...(prev[qId] || {}),
+        [itemId]: value
+      }
+    }));
+  };
+
+  const handleShortAnswerChange = (qId, val) => {
+    if (isExamSubmitted) return;
+    setAnswers(prev => ({ ...prev, [qId]: val }));
+  };
+
+  // Tính điểm tổng kết
+  const calculateResult = useMemo(() => {
+    let correctCount = 0;
+    activeQuestions.forEach(q => {
+      const userAns = answers[q.id];
+      if (q.type === 'mcq') {
+        if (userAns === q.correct) correctCount++;
+      } else if (q.type === 'tf') {
+        if (userAns && Array.isArray(q.items)) {
+          const allMatch = q.items.every(item => userAns[item.id] === item.correct);
+          if (allMatch) correctCount++;
+        }
+      } else if (q.type === 'sa') {
+        if (userAns && q.correctAnswer) {
+          const cleanUserStr = String(userAns).trim().toLowerCase();
+          const cleanCorrectStr = String(q.correctAnswer).trim().toLowerCase();
+          if (cleanUserStr === cleanCorrectStr) correctCount++;
+        }
+      }
+    });
+
+    return {
+      score: correctCount,
+      total: activeQuestions.length,
+      percentage: activeQuestions.length > 0 ? Math.round((correctCount / activeQuestions.length) * 100) : 0
+    };
+  }, [activeQuestions, answers]);
+
+  const handleSubmitExam = () => {
+    setIsExamSubmitted(true);
+    if (onSaveSubmission) {
+      onSaveSubmission({
+        id: Date.now(),
+        studentName: studentName.trim(),
+        studentClass: studentClass.trim(),
+        subjectName: subjectObj.name,
+        topic: directQuestions ? 'Đề thi tạo tùy chỉnh' : 'Ngân hàng tổng hợp',
+        score: calculateResult.score,
+        totalQuestions: calculateResult.total,
+        submittedAt: new Date().toLocaleString('vi-VN')
+      });
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  if (!isExamStarted) {
+    return (
+      <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200 max-w-xl mx-auto space-y-6">
+        <div className="text-center space-y-2">
+          <div className="w-16 h-16 bg-emerald-100 text-emerald-800 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+            <BookOpen className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl sm:text-2xl font-bold text-slate-800">
+            {directQuestions ? 'Bắt Đầu Làm Đề Thi Tùy Chỉnh' : `Luyện Thi Môn ${subjectObj.name}`}
+          </h2>
+          <p className="text-xs text-slate-500">
+            Cấu trúc chuẩn Bộ GD&amp;ĐT - Bao gồm 3 dạng câu hỏi (MCQ, Đúng/Sai, Trả lời ngắn)
+          </p>
+          {directQuestions && (
+            <div className="inline-block bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold px-3 py-1 rounded-full">
+              ✨ Đề Thi Được Khởi Tạo Từ Trình AI / Ma Trận ({directQuestions.length} câu)
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              Họ và Tên Học Sinh (*):
+            </label>
+            <input
+              type="text"
+              placeholder="Nhập họ và tên học sinh..."
+              value={studentName}
+              onChange={e => setStudentName(e.target.value)}
+              className="w-full p-3 border border-slate-300 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              Lớp / Trường:
+            </label>
+            <input
+              type="text"
+              placeholder="Ví dụ: 12A1 - THPT Võ Thị Sáu"
+              value={studentClass}
+              onChange={e => setStudentClass(e.target.value)}
+              className="w-full p-3 border border-slate-300 rounded-xl text-sm font-semibold outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2 text-slate-600">
+            <div className="flex justify-between font-semibold">
+              <span>Số lượng câu hỏi:</span>
+              <span className="font-bold text-emerald-800">{activeQuestions.length} câu</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Thời gian làm bài:</span>
+              <span className="font-bold text-emerald-800">45 phút</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Nộp bài &amp; Chấm điểm:</span>
+              <span className="font-bold text-emerald-800">Tự động báo điểm + Lưu lịch sử</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex space-x-3">
+          {directQuestions && (
+            <button
+              onClick={onClearDirectQuestions}
+              className="w-1/3 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition"
+            >
+              Hủy Đề Thi
+            </button>
+          )}
+          <button
+            onClick={handleStartExam}
+            disabled={!studentName.trim()}
+            className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg transition flex items-center justify-center gap-2"
+          >
+            <Zap className="w-5 h-5 text-amber-300 fill-amber-300" />
+            <span>Bắt Đầu Làm Bài Thi</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* THANH THÔNG TIN BÀI THI & ĐỒNG HỒ */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4 sticky top-16 z-40">
+        <div>
+          <span className="text-xs text-slate-400 font-mono uppercase">Học sinh làm bài:</span>
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+            <span>{studentName}</span>
+            <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono">
+              {studentClass}
+            </span>
+          </h3>
+        </div>
+
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 bg-slate-900 text-white px-4 py-2 rounded-xl font-mono text-sm font-bold shadow">
+            <RefreshCw className={`w-4 h-4 ${!isExamSubmitted ? 'animate-spin text-amber-400' : ''}`} />
+            <span>{formatTime(timeLeft)}</span>
+          </div>
+
+          {!isExamSubmitted ? (
+            <button
+              onClick={handleSubmitExam}
+              className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-5 py-2 rounded-xl text-xs shadow transition flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Nộp Bài Thi</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => { setIsExamStarted(false); setIsExamSubmitted(false); }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs shadow transition"
+            >
+              Làm Đề Khác
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* KẾT QUẢ ĐÃ NỘP BÀI */}
+      {isExamSubmitted && (
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-6 rounded-2xl shadow-lg flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <span className="text-xs uppercase font-mono tracking-wider text-emerald-200">Kết quả bài làm của bạn</span>
+            <h2 className="text-2xl font-bold mt-1">
+              Đạt {calculateResult.score} / {calculateResult.total} Câu ({calculateResult.percentage}%)
+            </h2>
+            <p className="text-xs text-emerald-100 mt-0.5">
+              Kết quả đã được gửi tự động về Nhật ký của Giáo viên.
+            </p>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm p-3 rounded-xl border border-white/20 font-mono text-center">
+            <span className="block text-2xl font-bold text-amber-300">{calculateResult.score}</span>
+            <span className="text-[10px] text-emerald-100 uppercase">Điểm số</span>
+          </div>
+        </div>
+      )}
+
+      {/* DANH SÁCH CÂU HỎI LÀM BÀI */}
+      <div className="space-y-4">
+        {activeQuestions.map((q, qIdx) => {
+          const userAns = answers[q.id];
+
+          return (
+            <div key={q.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+              <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                <span className="font-bold text-emerald-800 text-sm">
+                  Câu {qIdx + 1}: [{q.type === 'mcq' ? 'Trắc nghiệm MCQ' : q.type === 'tf' ? 'Đúng/Sai 4 ý' : 'Trả lời ngắn'}]
+                </span>
+                <span className="text-[11px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-semibold">
+                  Chủ đề: {q.topic || 'Tổng hợp'}
+                </span>
+              </div>
+
+              <p className="font-semibold text-slate-800 text-sm leading-relaxed">{q.question}</p>
+
+              {/* DẠNG 1: MCQ */}
+              {q.type === 'mcq' && Array.isArray(q.options) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {q.options.map((opt, oIdx) => {
+                    const isSelected = userAns === oIdx;
+                    let style = 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100';
+
+                    if (isExamSubmitted) {
+                      if (oIdx === q.correct) {
+                        style = 'bg-emerald-100 border-emerald-500 text-emerald-900 font-bold';
+                      } else if (isSelected && oIdx !== q.correct) {
+                        style = 'bg-rose-100 border-rose-400 text-rose-900 line-through';
+                      }
+                    } else if (isSelected) {
+                      style = 'bg-emerald-600 text-white font-bold border-emerald-700 shadow-sm';
+                    }
+
+                    return (
+                      <button
+                        key={oIdx}
+                        onClick={() => handleMCQSelect(q.id, oIdx)}
+                        className={`p-3 rounded-xl border text-left text-xs transition flex items-center gap-2 ${style}`}
+                      >
+                        <span className="font-bold font-mono w-5 h-5 flex items-center justify-center rounded-full bg-black/5">
+                          {String.fromCharCode(65 + oIdx)}
+                        </span>
+                        <span className="flex-1">{opt}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* DẠNG 2: TRẮC NGHIỆM ĐÚNG / SAI 4 Ý */}
+              {q.type === 'tf' && Array.isArray(q.items) && (
+                <div className="space-y-2 pt-1">
+                  {q.items.map(item => {
+                    const itemAns = userAns ? userAns[item.id] : undefined;
+
+                    return (
+                      <div key={item.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <span className="flex-1 font-medium text-slate-700">
+                          <b className="text-slate-900">{item.id})</b> {item.statement}
+                        </span>
+
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => handleTFSelect(q.id, item.id, true)}
+                            className={`px-3 py-1.5 rounded-lg font-bold transition text-xs ${
+                              itemAns === true
+                                ? 'bg-emerald-600 text-white shadow'
+                                : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            ĐÚNG
+                          </button>
+                          <button
+                            onClick={() => handleTFSelect(q.id, item.id, false)}
+                            className={`px-3 py-1.5 rounded-lg font-bold transition text-xs ${
+                              itemAns === false
+                                ? 'bg-rose-600 text-white shadow'
+                                : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            SAI
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* DẠNG 3: TRẢ LỜI NGẮN */}
+              {q.type === 'sa' && (
+                <div className="space-y-2 pt-1">
+                  <label className="block text-xs font-semibold text-slate-600">Nhập câu trả lời của bạn:</label>
+                  <input
+                    type="text"
+                    disabled={isExamSubmitted}
+                    placeholder="Nhập kết quả số liệu hoặc từ khóa..."
+                    value={userAns || ''}
+                    onChange={e => handleShortAnswerChange(q.id, e.target.value)}
+                    className="w-full p-3 border border-slate-300 rounded-xl text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50"
+                  />
+                  {isExamSubmitted && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs font-mono text-emerald-800">
+                      <b>Đáp án chuẩn:</b> {q.correctAnswer}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* GIẢI THÍCH CHI TIẾT KHI ĐÃ NỘP BÀI */}
+              {isExamSubmitted && q.explanation && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-1 text-slate-700">
+                  <span className="font-bold text-amber-900 flex items-center gap-1">
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>Hướng dẫn giải chi tiết:</span>
+                  </span>
+                  <p>{q.explanation}</p>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 2. SECTION: TRÌNH TẠO ĐỀ THI ĐỘNG AI / MA TRẬN & TẢI FILE TỪ MÁY TÍNH
+// ==========================================
+function AiExamBuilderSection({ subjects = [], questionsBank = [], onLoadExamToExporter, onPlayExamDirectly, setQuestions }) {
+  const [selectedSubjectId, setSelectedSubjectId] = useState(subjects[0]?.id || 'sub_bio');
+  const [grade, setGrade] = useState('12');
+  const [topicInput, setTopicInput] = useState('Tổng hợp kiến thức Sinh học Lớp 12');
+  const [mcqCount, setMcqCount] = useState(5);
+  const [tfCount, setTfCount] = useState(2);
+  const [saCount, setSaCount] = useState(2);
+  const [sourceType, setSourceType] = useState('ai'); // 'ai', 'bank', 'file'
+
+  // Upload file từ máy
+  const [fileUploadedQuestions, setFileUploadedQuestions] = useState([]);
+  const [fileName, setFileName] = useState('');
+
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [generatedQuestions, setGeneratedQuestions] = useState([]);
+
+  const selectedSubjectObj = useMemo(() => {
+    return subjects.find(s => s.id === selectedSubjectId) || subjects[0];
+  }, [subjects, selectedSubjectId]);
+
+  const availableTopicsList = useMemo(() => {
+    const subTopics = SUBJECT_GRADE_TOPICS[selectedSubjectId] || {};
+    return subTopics[grade] || ['Tổng hợp kiến thức chương trình THPT'];
+  }, [selectedSubjectId, grade]);
+
+  const handleSubjectChange = (newSubId) => {
+    setSelectedSubjectId(newSubId);
+    const topics = (SUBJECT_GRADE_TOPICS[newSubId] || {})[grade] || [];
+    if (topics.length > 0) {
+      setTopicInput(topics[0]);
+    }
+  };
+
+  const handleGradeChange = (newGrade) => {
+    setGrade(newGrade);
+    const topics = (SUBJECT_GRADE_TOPICS[selectedSubjectId] || {})[newGrade] || [];
+    if (topics.length > 0) {
+      setTopicInput(topics[0]);
+    }
+  };
+
+  // Đọc file JSON từ máy tính người dùng
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      try {
+        const content = JSON.parse(event.target.result);
+        if (Array.isArray(content)) {
+          setFileUploadedQuestions(content);
+          setErrorMessage('');
+        } else {
+          setErrorMessage('File JSON không đúng định dạng mảng câu hỏi.');
+        }
+      } catch (err) {
+        setErrorMessage('Không thể đọc file JSON. Vui lòng kiểm tra lại cấu trúc file.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Tải file mẫu cấu trúc JSON chuẩn về máy
+  const handleDownloadSampleFile = () => {
+    const sampleData = [
+      {
+        id: 1,
+        subjectId: selectedSubjectId,
+        topic: 'Bài 1: Mẫu câu hỏi',
+        type: 'mcq',
+        question: 'Ví dụ câu hỏi trắc nghiệm MCQ 4 lựa chọn?',
+        options: ['Phương án A', 'Phương án B', 'Phương án C', 'Phương án D'],
+        correct: 0,
+        explanation: 'Giải thích chi tiết cho phương án đúng...'
+      },
+      {
+        id: 2,
+        subjectId: selectedSubjectId,
+        topic: 'Bài 1: Mẫu câu hỏi',
+        type: 'tf',
+        question: 'Ví dụ câu hỏi Đúng / Sai 4 ý:',
+        items: [
+          { id: 'a', statement: 'Mô tả ý a đúng', correct: true },
+          { id: 'b', statement: 'Mô tả ý b sai', correct: false },
+          { id: 'c', statement: 'Mô tả ý c đúng', correct: true },
+          { id: 'd', statement: 'Mô tả ý d sai', correct: false }
+        ],
+        explanation: 'Giải thích đáp án Đúng/Sai...'
+      },
+      {
+        id: 3,
+        subjectId: selectedSubjectId,
+        topic: 'Bài 1: Mẫu câu hỏi',
+        type: 'sa',
+        question: 'Ví dụ câu hỏi Trả lời ngắn?',
+        correctAnswer: '399',
+        explanation: 'Giải thích kết quả số liệu...'
+      }
+    ];
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(sampleData, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `NganHangMau_${selectedSubjectObj.code}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleGenerateExam = async () => {
+    setIsGenerating(true);
+    setErrorMessage('');
+    setGeneratedQuestions([]);
+
+    if (sourceType === 'file') {
+      if (fileUploadedQuestions.length === 0) {
+        setErrorMessage('Vui lòng chọn file ngân hàng câu hỏi (.json) từ máy tính trước.');
+        setIsGenerating(false);
+        return;
+      }
+      const mcqFile = fileUploadedQuestions.filter(q => q.type === 'mcq').sort(() => Math.random() - 0.5);
+      const tfFile = fileUploadedQuestions.filter(q => q.type === 'tf').sort(() => Math.random() - 0.5);
+      const saFile = fileUploadedQuestions.filter(q => q.type === 'sa').sort(() => Math.random() - 0.5);
+
+      const combined = [
+        ...mcqFile.slice(0, mcqCount),
+        ...tfFile.slice(0, tfCount),
+        ...saFile.slice(0, saCount)
+      ];
+
+      setGeneratedQuestions(combined.length > 0 ? combined : fileUploadedQuestions);
+      setIsGenerating(false);
+
+    } else if (sourceType === 'bank') {
+      const subQuestions = questionsBank.filter(q => q.subjectId === selectedSubjectId);
+      const mcqBank = subQuestions.filter(q => q.type === 'mcq').sort(() => Math.random() - 0.5);
+      const tfBank = subQuestions.filter(q => q.type === 'tf').sort(() => Math.random() - 0.5);
+      const saBank = subQuestions.filter(q => q.type === 'sa').sort(() => Math.random() - 0.5);
+
+      const pickedMCQ = mcqBank.slice(0, mcqCount);
+      const pickedTF = tfBank.slice(0, tfCount);
+      const pickedSA = saBank.slice(0, saCount);
+
+      const combined = [...pickedMCQ, ...pickedTF, ...pickedSA];
+
+      if (combined.length === 0) {
+        setErrorMessage(`Ngân hàng môn ${selectedSubjectObj.name} hiện chưa đủ câu hỏi. Vui lòng thêm câu hỏi hoặc chọn nguồn AI.`);
+      } else {
+        setGeneratedQuestions(combined);
+      }
+      setIsGenerating(false);
+    } else {
+      try {
+        const result = await generateMultiSubjectExamAI(
+          selectedSubjectObj.name,
+          topicInput.trim() || 'Tổng hợp',
+          grade,
+          mcqCount,
+          tfCount,
+          saCount
+        );
+
+        if (result && result.length > 0) {
+          const formatted = result.map((q, i) => ({ ...q, id: Date.now() + i, subjectId: selectedSubjectId }));
+          setGeneratedQuestions(formatted);
+        } else {
+          setErrorMessage('Không thể tạo bộ câu hỏi qua AI. Vui lòng thử lại hoặc giảm số lượng câu.');
+        }
+      } catch (err) {
+        setErrorMessage('Đã xảy ra lỗi khi tạo đề bằng AI.');
+      } finally {
+        setIsGenerating(false);
+      }
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+        <div className="flex items-center space-x-3 border-b pb-4">
+          <div className="p-3 bg-amber-100 text-amber-800 rounded-xl">
+            <Sparkles className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Trình Soạn Đề Thi AI &amp; Ma Trận (Góc Giáo Viên)</h2>
+            <p className="text-xs text-slate-500">Tải file câu hỏi từ máy tính, trích xuất ngân hàng hoặc dùng AI biên soạn trực tiếp</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Môn học:</label>
+            <select
+              value={selectedSubjectId}
+              onChange={e => handleSubjectChange(e.target.value)}
+              className="w-full p-2.5 border rounded-lg text-sm font-semibold outline-none bg-slate-50"
+            >
+              {subjects.map(s => (
+                <option key={s.id} value={s.id}>{s.icon} {s.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Khối Lớp (GDPT 2018):</label>
+            <select
+              value={grade}
+              onChange={e => handleGradeChange(e.target.value)}
+              className="w-full p-2.5 border rounded-lg text-sm font-semibold outline-none bg-slate-50 text-emerald-800"
+            >
+              <option value="10">Lớp 10</option>
+              <option value="11">Lớp 11</option>
+              <option value="12">Lớp 12</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nguồn tạo đề thi:</label>
+            <select
+              value={sourceType}
+              onChange={e => setSourceType(e.target.value)}
+              className="w-full p-2.5 border rounded-lg text-sm font-semibold outline-none bg-amber-50 border-amber-300 text-slate-900"
+            >
+              <option value="ai">✨ Trí Tuệ Nhân Tạo (Gemini AI)</option>
+              <option value="bank">📂 Ngân hàng câu hỏi trong App</option>
+              <option value="file">💻 Upload File Ngân hàng từ Máy tính (.JSON)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* MỤC UPLOAD FILE TỪ MÁY TÍNH */}
+        {sourceType === 'file' && (
+          <div className="p-4 bg-amber-50/60 rounded-xl border border-amber-200 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
+                  <Upload className="w-4 h-4 text-amber-600" />
+                  <span>Chọn File Ngân Hàng Câu Hỏi Từ Máy Tính (.JSON):</span>
+                </h4>
+                <p className="text-xs text-slate-500">Giúp Giáo viên nạp danh sách câu hỏi đã soạn sẵn từ máy tính vào đề thi.</p>
+              </div>
+              <button
+                onClick={handleDownloadSampleFile}
+                className="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100 rounded-lg text-xs font-bold text-amber-900 flex items-center gap-1 shadow-sm transition"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Tải File Mẫu (.JSON)</span>
+              </button>
+            </div>
+
+            <div className="flex items-center space-x-3">
+              <label className="cursor-pointer bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-4 py-2.5 rounded-xl text-xs shadow flex items-center gap-2 transition">
+                <FileText className="w-4 h-4" />
+                <span>Browse / Chọn File...</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </label>
+              <span className="text-xs font-mono font-bold text-slate-700">
+                {fileName ? `Đã chọn: ${fileName} (${fileUploadedQuestions.length} câu)` : 'Chưa chọn file nào'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {sourceType === 'ai' && (
+          <div className="space-y-2">
+            <label className="block text-xs font-bold text-slate-700 uppercase">
+              Chủ đề / Bài học theo Chương trình GDPT 2018 ({selectedSubjectObj.name} - Lớp {grade}):
+            </label>
+            <select
+              value={topicInput}
+              onChange={e => setTopicInput(e.target.value)}
+              className="w-full p-3 border rounded-xl text-sm font-semibold outline-none bg-emerald-50/70 border-emerald-300 text-emerald-900"
+            >
+              {availableTopicsList.map((tp, idx) => (
+                <option key={idx} value={tp}>{tp}</option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={topicInput}
+              onChange={e => setTopicInput(e.target.value)}
+              placeholder="Hoặc tự gõ thêm chi tiết yêu cầu bài học tùy chỉnh tại đây..."
+              className="w-full p-2.5 border rounded-xl text-xs font-medium outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+            />
+          </div>
+        )}
+
+        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+          <h4 className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
+            <Settings2 className="w-4 h-4 text-emerald-600" />
+            <span>Cấu Trúc Ma Trận Đề Thi (Cả 3 Dạng Thi THPT Mới):</span>
+          </h4>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Dạng 1: Trắc nghiệm 4 lựa chọn (MCQ):</label>
+              <input
+                type="number"
+                min="0"
+                max="40"
+                value={mcqCount}
+                onChange={e => setMcqCount(Number(e.target.value))}
+                className="w-full p-2.5 border rounded-lg text-sm font-mono font-bold outline-none bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Dạng 2: Đúng/Sai (4 ý a,b,c,d):</label>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                value={tfCount}
+                onChange={e => setTfCount(Number(e.target.value))}
+                className="w-full p-2.5 border rounded-lg text-sm font-mono font-bold outline-none bg-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Dạng 3: Trả lời ngắn (Short Answer):</label>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                value={saCount}
+                onChange={e => setSaCount(Number(e.target.value))}
+                className="w-full p-2.5 border rounded-lg text-sm font-mono font-bold outline-none bg-white"
+              />
+            </div>
+          </div>
+        </div>
+
+        {errorMessage && (
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs font-semibold text-rose-700">
+            {errorMessage}
+          </div>
+        )}
+
+        <button
+          onClick={handleGenerateExam}
+          disabled={isGenerating}
+          className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-900 font-bold text-base rounded-xl shadow transition flex items-center justify-center gap-2"
+        >
+          {isGenerating ? (
+            <>
+              <RefreshCw className="w-5 h-5 animate-spin" />
+              <span>Đang Khởi Tạo Đề Thi...</span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-5 h-5 fill-slate-900" />
+              <span>Khởi Tạo Bộ Đề Ngay</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* HIỂN THỊ KẾT QUẢ ĐỀ THI ĐÃ TẠO */}
+      {generatedQuestions.length > 0 && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Kết Quả Đề Thi Được Tạo ({generatedQuestions.length} câu)</h3>
+              <p className="text-xs text-emerald-700 font-semibold">Môn {selectedSubjectObj.name} - Khối {grade}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => onPlayExamDirectly && onPlayExamDirectly(generatedQuestions, selectedSubjectId)}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-4 py-2 rounded-xl text-xs shadow flex items-center gap-1.5 transition"
+              >
+                <Zap className="w-4 h-4 fill-slate-900" />
+                <span>Cho Học Sinh Làm Trực Tiếp 🚀</span>
+              </button>
+              <button
+                onClick={() => onLoadExamToExporter(generatedQuestions, selectedSubjectObj.name)}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs shadow flex items-center gap-1.5 transition"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Xuất PDF / In Đề</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+            {generatedQuestions.map((q, idx) => (
+              <div key={idx} className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 text-xs">
+                <div className="flex justify-between font-bold text-emerald-800">
+                  <span>Câu {idx + 1}: [{q.type === 'mcq' ? 'MCQ 4 lựa chọn' : q.type === 'tf' ? 'Đúng/Sai 4 ý' : 'Trả lời ngắn'}]</span>
+                  <span>Topic: {q.topic || topicInput}</span>
+                </div>
+                <p className="font-semibold text-slate-800 text-sm">{q.question}</p>
+
+                {q.type === 'mcq' && Array.isArray(q.options) && (
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {q.options.map((opt, oIdx) => (
+                      <div key={oIdx} className={oIdx === q.correct ? 'font-bold text-emerald-700' : 'text-slate-600'}>
+                        {String.fromCharCode(65 + oIdx)}. {opt}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {q.type === 'tf' && Array.isArray(q.items) && (
+                  <div className="space-y-1 pt-1">
+                    {q.items.map(item => (
+                      <div key={item.id} className="flex justify-between">
+                        <span>{item.id}) {item.statement}</span>
+                        <span className="font-bold text-emerald-700">{item.correct ? 'ĐÚNG' : 'SAI'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {q.type === 'sa' && (
+                  <div className="pt-1 font-mono text-emerald-700">
+                    <b>Đáp án chính xác:</b> {q.correctAnswer}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 3. SECTION: GÓC GIÁO VIÊN - QUẢN LÝ 3 DẠNG CÂU HỎI & SOẠN ĐỀ THI
+// ==========================================
+function TeacherSection({
+  subjects = [],
+  setSubjects,
+  selectedSubjectId,
+  setSelectedSubjectId,
+  questions = [],
+  setQuestions,
+  flashcards = [],
+  setFlashcards,
+  isAuthenticated,
+  setIsAuthenticated,
+  teacherPin,
+  submissions = [],
+  setSubmissions,
+  onLoadExamToExporter,
+  onPlayExamDirectly
+}) {
+  const [teacherTab, setTeacherTab] = useState('builder'); // 'builder', 'bank', 'submissions'
+  const [inputPin, setInputPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [showAddQuestionModal, setShowAddQuestionModal] = useState(false);
+
+  // Form thêm câu hỏi mới
+  const [formSubjectId, setFormSubjectId] = useState(selectedSubjectId);
+  const [formTopic, setFormTopic] = useState('Di truyền học');
+  const [formType, setFormType] = useState('mcq');
+  const [formQuestion, setFormQuestion] = useState('');
+  const [formMcqOptions, setFormMcqOptions] = useState(['', '', '', '']);
+  const [formMcqCorrect, setFormMcqCorrect] = useState(0);
+  const [formSaCorrectAnswer, setFormSaCorrectAnswer] = useState('');
+  const [formExplanation, setFormExplanation] = useState('');
+
+  const handleLogin = () => {
+    if (inputPin === teacherPin) {
+      setIsAuthenticated(true);
+      setPinError('');
+    } else {
+      setPinError('Mã PIN không chính xác! (Mặc định: 123456)');
+    }
+  };
+
+  const handleSaveQuestion = () => {
+    if (!formQuestion.trim()) return;
+    const newQ = {
+      id: Date.now(),
+      subjectId: formSubjectId,
+      topic: formTopic,
+      type: formType,
+      question: formQuestion,
+      options: formType === 'mcq' ? formMcqOptions : undefined,
+      correct: formType === 'mcq' ? formMcqCorrect : undefined,
+      correctAnswer: formType === 'sa' ? formSaCorrectAnswer : undefined,
+      explanation: formExplanation
+    };
+    setQuestions(prev => [newQ, ...prev]);
+    setShowAddQuestionModal(false);
+    setFormQuestion('');
+    setFormSaCorrectAnswer('');
+  };
+
+  const handleDeleteQuestion = (id) => {
+    setQuestions(prev => prev.filter(q => q.id !== id));
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-200 max-w-md mx-auto space-y-4 text-center">
+        <div className="w-14 h-14 bg-emerald-100 text-emerald-800 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+          <UserCheck className="w-7 h-7" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-800">Xác Thực Quản Lý Giáo Viên</h3>
+        <p className="text-xs text-slate-500">Vui lòng nhập Mã PIN để truy cập Ngân hàng câu hỏi &amp; Trình Soạn Đề AI</p>
+
+        <input
+          type="password"
+          placeholder="Nhập Mã PIN (Mặc định: 123456)..."
+          value={inputPin}
+          onChange={e => setInputPin(e.target.value)}
+          className="w-full p-3 border border-slate-300 rounded-xl text-center font-mono text-base outline-none focus:ring-2 focus:ring-emerald-500"
+        />
+        {pinError && <p className="text-xs text-rose-500 font-semibold">{pinError}</p>}
+
+        <button
+          onClick={handleLogin}
+          className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow transition"
+        >
+          Xác Nhận Đăng Nhập
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* HEADER SUB-TABS TRONG GÓC GIÁO VIÊN */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setTeacherTab('builder')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${teacherTab === 'builder' ? 'bg-amber-400 text-slate-900 shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            <Sparkles className="w-4 h-4 fill-slate-900 text-slate-900" />
+            <span>Soạn Đề Thi (AI / File Máy)</span>
+          </button>
+          <button
+            onClick={() => setTeacherTab('bank')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${teacherTab === 'bank' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            <Database className="w-4 h-4" />
+            <span>Ngân Hàng Câu Hỏi ({questions.length})</span>
+          </button>
+          <button
+            onClick={() => setTeacherTab('submissions')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${teacherTab === 'submissions' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>Lịch Sử Nộp Bài ({submissions.length})</span>
+          </button>
+        </div>
+
+        {teacherTab === 'bank' && (
+          <button
+            onClick={() => setShowAddQuestionModal(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs shadow flex items-center gap-1.5 transition"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Thêm Câu Hỏi Thủ Công</span>
+          </button>
+        )}
+      </div>
+
+      {/* COMPONENT SOẠN ĐỀ THI TÍCH HỢP TRONG GÓC GIÁO VIÊN */}
+      {teacherTab === 'builder' && (
+        <AiExamBuilderSection
+          subjects={subjects}
+          questionsBank={questions}
+          onLoadExamToExporter={onLoadExamToExporter}
+          onPlayExamDirectly={onPlayExamDirectly}
+          setQuestions={setQuestions}
+        />
+      )}
+
+      {/* LỊCH SỬ NỘP BÀI CỦA HỌC SINH */}
+      {teacherTab === 'submissions' && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+          <h3 className="text-base font-bold text-slate-800">Nhật Ký Học Sinh Nộp Bài</h3>
+          {submissions.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">Chưa có kết quả làm bài nào từ học sinh.</p>
+          ) : (
+            <div className="space-y-3">
+              {submissions.map((sub) => (
+                <div key={sub.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between gap-4 text-xs">
+                  <div>
+                    <span className="font-bold text-slate-800 text-sm">{sub.studentName}</span>
+                    <span className="ml-2 text-slate-500">Lớp: {sub.studentClass || 'K12'}</span>
+                    <p className="text-emerald-700 font-semibold mt-0.5">
+                      Môn: {sub.subjectName} - Chủ đề: {sub.topic}
+                    </p>
+                    <span className="text-[10px] text-slate-400">{sub.submittedAt}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-base font-mono font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-lg">
+                      {sub.score} / {sub.totalQuestions} Câu
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODAL THÊM CÂU HỎI MỚI */}
+      {showAddQuestionModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setShowAddQuestionModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+              <X className="w-5 h-5" />
+            </button>
+            <h3 className="text-lg font-bold text-slate-800">Thêm Câu Hỏi Thủ Công</h3>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Môn học:</label>
+                <select
+                  value={formSubjectId}
+                  onChange={e => setFormSubjectId(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-xs outline-none bg-white font-medium"
+                >
+                  {subjects.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Dạng câu hỏi:</label>
+                <select
+                  value={formType}
+                  onChange={e => setFormType(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-xs outline-none bg-white font-medium"
+                >
+                  <option value="mcq">Nhiều lựa chọn (MCQ)</option>
+                  <option value="tf">Đúng/Sai 4 ý (a,b,c,d)</option>
+                  <option value="sa">Trả lời ngắn (Short Answer)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Nội dung câu hỏi:</label>
+                <textarea
+                  rows="3"
+                  value={formQuestion}
+                  onChange={e => setFormQuestion(e.target.value)}
+                  placeholder="Nhập câu hỏi tại đây..."
+                  className="w-full p-2.5 border rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {formType === 'mcq' && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-600">4 Phương án trả lời:</label>
+                  {formMcqOptions.map((opt, i) => (
+                    <div key={i} className="flex items-center space-x-2">
+                      <span className="text-xs font-bold w-4">{String.fromCharCode(65 + i)}:</span>
+                      <input
+                        type="text"
+                        value={opt}
+                        onChange={e => {
+                          const updated = [...formMcqOptions];
+                          updated[i] = e.target.value;
+                          setFormMcqOptions(updated);
+                        }}
+                        className="flex-1 p-2 border rounded-lg text-xs outline-none"
+                      />
+                      <input
+                        type="radio"
+                        name="correctOpt"
+                        checked={formMcqCorrect === i}
+                        onChange={() => setFormMcqCorrect(i)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {formType === 'sa' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Đáp án chính xác (Điền từ / số):</label>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: 399 hoặc renewable..."
+                    value={formSaCorrectAnswer}
+                    onChange={e => setFormSaCorrectAnswer(e.target.value)}
+                    className="w-full p-2.5 border rounded-lg text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Hướng dẫn giải chi tiết:</label>
+                <textarea
+                  rows="2"
+                  value={formExplanation}
+                  onChange={e => setFormExplanation(e.target.value)}
+                  placeholder="Nhập giải thích cho học sinh..."
+                  className="w-full p-2.5 border rounded-lg text-xs outline-none"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleSaveQuestion}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow"
+            >
+              Lưu Câu Hỏi Vào Ngân Hàng
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* DANH SÁCH CÂU HỎI TRONG NGÂN HÀNG */}
+      {teacherTab === 'bank' && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+          <h3 className="text-base font-bold text-slate-800">Danh Sách Câu Hỏi Trong Ngân Hàng ({questions.length} câu)</h3>
+          <div className="space-y-3">
+            {questions.map((q) => (
+              <div key={q.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex items-start justify-between gap-4">
+                <div className="space-y-1 text-xs">
+                  <span className="font-bold text-emerald-700">[Môn {subjects.find(s=>s.id===q.subjectId)?.name}] - {q.topic}</span>
+                  <p className="text-sm font-semibold text-slate-800">{q.question}</p>
+                  <p className="text-slate-500">Dạng: <b>{q.type}</b></p>
+                </div>
+                <button
+                  onClick={() => handleDeleteQuestion(q.id)}
+                  className="text-rose-500 hover:text-rose-700 p-1 rounded"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 4. SECTION: XUẤT ĐỀ THI RA PDF/WORD (HỖ TRỢ DẠNG 3)
+// ==========================================
+function ExporterSection({ questions = [], subjectName = 'Sinh học' }) {
+  const [examTitle, setExamTitle] = useState(`ĐỀ THI KẾT THÚC BÀI HỌC MÔN ${subjectName.toUpperCase()}`);
+  const [examCode, setExamCode] = useState('101');
+  const [teacherName, setTeacherName] = useState('Thầy Trương Trung Can');
+  const [timeAllowed, setTimeAllowed] = useState('50');
+  const [showKey, setShowKey] = useState(true);
+
+  const handlePrint = () => { window.print(); };
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Xuất Đề Thi Đa Môn (PDF / In Đề)</h2>
+            <p className="text-xs text-slate-500">Đề thi hiển thị định dạng chuẩn của Sở GD&amp;ĐT - Tác giả: <b>Thầy Trương Trung Can</b></p>
+          </div>
+          <button
+            onClick={handlePrint}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-xl flex items-center gap-2 shadow transition"
+          >
+            <Printer className="w-5 h-5" />
+            <span>In Đề / Lưu File PDF</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-sm pt-2">
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Tiêu đề đề thi:</label>
+            <input
+              type="text"
+              value={examTitle}
+              onChange={e => setExamTitle(e.target.value)}
+              className="w-full p-2 border rounded-lg text-xs outline-none"
+            />
+          </div>
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Giáo viên biên soạn:</label>
+            <input
+              type="text"
+              value={teacherName}
+              onChange={e => setTeacherName(e.target.value)}
+              className="w-full p-2 border rounded-lg text-xs outline-none font-bold text-emerald-800"
+            />
+          </div>
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Mã đề thi:</label>
+            <input
+              type="text"
+              value={examCode}
+              onChange={e => setExamCode(e.target.value)}
+              className="w-full p-2 border rounded-lg text-xs outline-none font-mono"
+            />
+          </div>
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">Thời gian (phút):</label>
+            <input
+              type="text"
+              value={timeAllowed}
+              onChange={e => setTimeAllowed(e.target.value)}
+              className="w-full p-2 border rounded-lg text-xs outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 sm:p-12 rounded-xl shadow-md border border-slate-200 print:shadow-none print:border-none print:p-0 font-serif text-slate-900 leading-normal">
+        <div className="border-b-2 border-slate-900 pb-4 mb-6 flex justify-between items-start">
+          <div className="text-center w-1/2">
+            <p className="font-bold text-sm uppercase">SỞ GIÁO DỤC &amp; ĐÀO TẠO THPT</p>
+            <p className="font-bold text-sm uppercase">LỚP THẦY TRƯƠNG TRUNG CAN</p>
+            <p className="text-xs italic mt-1">(Đề thi gồm {questions.length} câu hỏi)</p>
+          </div>
+          <div className="text-center w-1/2">
+            <p className="font-bold text-base uppercase">{examTitle}</p>
+            <p className="text-xs italic">Môn thi: <b>{subjectName}</b> - Biên soạn: <b>{teacherName}</b></p>
+            <p className="text-xs italic">Thời gian làm bài: {timeAllowed} phút</p>
+            <p className="font-mono text-xs font-bold mt-1">Mã đề: {examCode}</p>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          {questions.map((q, qIdx) => (
+            <div key={qIdx} className="space-y-1 text-sm">
+              <div className="flex gap-2">
+                <span className="font-bold">Câu {qIdx + 1}:</span>
+                <span className="flex-1">{q.question}</span>
+              </div>
+
+              {q.type === 'mcq' && Array.isArray(q.options) && (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm pl-6">
+                  {q.options.map((opt, oIdx) => (
+                    <div key={oIdx}>
+                      <span className="font-bold">{String.fromCharCode(65 + oIdx)}.</span> {opt}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {q.type === 'tf' && Array.isArray(q.items) && (
+                <div className="pl-6 space-y-1 text-sm">
+                  {q.items.map(item => (
+                    <div key={item.id} className="flex justify-between">
+                      <span><span className="font-bold">{item.id})</span> {item.statement}</span>
+                      <span className="text-xs italic text-slate-400 print:text-black">[ Đúng / Sai ]</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {q.type === 'sa' && (
+                <div className="pl-6 pt-1 text-xs italic text-slate-500 print:text-black">
+                  Trả lời: ............................................................................................................
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {showKey && (
+          <div className="mt-10 pt-6 border-t-2 border-slate-900">
+            <h4 className="font-bold text-center text-base mb-4 uppercase">BẢNG ĐÁP ÁN ĐỀ THI MÃ {examCode}</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse border border-slate-800 text-center text-xs">
+                <thead>
+                  <tr className="bg-slate-100 print:bg-transparent">
+                    <th className="border border-slate-800 p-2">Câu</th>
+                    {questions.map((_, i) => (
+                      <th key={i} className="border border-slate-800 p-2">{i + 1}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-slate-800 p-2 font-bold">Đáp án</td>
+                    {questions.map((q, i) => (
+                      <td key={i} className="border border-slate-800 p-1.5 font-mono font-bold">
+                        {q.type === 'mcq' 
+                          ? String.fromCharCode(65 + (q.correct || 0)) 
+                          : q.type === 'tf' 
+                          ? 'Đ/S' 
+                          : (q.correctAnswer || '---')}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 5. SECTION: TIỆN ÍCH SINH HỌC & FLASHCARDS
+// ==========================================
+function ToolsSection({ subjects = [], selectedSubjectId, flashcards = [] }) {
+  const [activeTool, setActiveTool] = useState('genetics');
+
+  const [parent1, setParent1] = useState('Aa');
+  const [parent2, setParent2] = useState('Aa');
+  const [mendelResult, setMendelResult] = useState(null);
+  const [searchCodon, setSearchCodon] = useState('');
+
+  const [flashcardIdx, setFlashcardIdx] = useState(0);
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  const filteredFlashcards = useMemo(() => {
+    return flashcards.filter(f => f.subjectId === selectedSubjectId);
+  }, [flashcards, selectedSubjectId]);
+
+  const calculateMendelCross = useCallback(() => {
+    const getGametes = (genotype) => {
+      if (genotype.length === 2) return [genotype[0], genotype[1]];
+      if (genotype.length === 4) {
+        const g1 = [genotype[0], genotype[1]];
+        const g2 = [genotype[2], genotype[3]];
+        const res = [];
+        g1.forEach(a1 => { g2.forEach(a2 => { res.push(a1 + a2); }); });
+        return res;
+      }
+      return [];
+    };
+
+    const g1 = getGametes(parent1);
+    const g2 = getGametes(parent2);
+    if (g1.length === 0 || g2.length === 0) return;
+
+    const combinations = [];
+    g1.forEach(a => {
+      g2.forEach(b => {
+        let combined = '';
+        if (a.length === 1) {
+          const pair = [a, b].sort();
+          combined = pair[0] === pair[0].toLowerCase() && pair[1] === pair[1].toUpperCase() ? pair[1] + pair[0] : pair.join('');
+        } else {
+          const p1 = [a[0], b[0]].sort();
+          const p1Str = p1[0] === p1[0].toLowerCase() && p1[1] === p1[1].toUpperCase() ? p1[1] + p1[0] : p1.join('');
+          const p2 = [a[1], b[1]].sort();
+          const p2Str = p2[0] === p2[0].toLowerCase() && p2[1] === p2[1].toUpperCase() ? p2[1] + p2[0] : p2.join('');
+          combined = p1Str + p2Str;
+        }
+        combinations.push(combined);
+      });
+    });
+
+    const counts = {};
+    combinations.forEach(c => { counts[c] = (counts[c] || 0) + 1; });
+    const total = combinations.length;
+    const genotypeRatios = Object.entries(counts).map(([genotype, count]) => ({
+      genotype,
+      count,
+      ratio: `${count}/${total}`,
+      percentage: Math.round((count / total) * 100)
+    }));
+
+    setMendelResult({ genotypeRatios, total });
+  }, [parent1, parent2]);
+
+  useEffect(() => { calculateMendelCross(); }, [calculateMendelCross]);
+
+  const filteredGeneticCode = useMemo(() => {
+    if (!searchCodon.trim()) return GENETIC_CODE_TABLE;
+    const term = searchCodon.toUpperCase();
+    return GENETIC_CODE_TABLE.filter(item => 
+      item.amino.toUpperCase().includes(term) || item.codons.some(c => c.includes(term))
+    );
+  }, [searchCodon]);
+
+  const currentCard = filteredFlashcards[flashcardIdx];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex border-b border-slate-200">
+        <button
+          onClick={() => setActiveTool('genetics')}
+          className={`px-4 py-3 font-bold text-sm border-b-2 transition ${activeTool === 'genetics' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'}`}
+        >
+          🧬 Máy Tính Phép Lai Mendel
+        </button>
+        <button
+          onClick={() => setActiveTool('codon')}
+          className={`px-4 py-3 font-bold text-sm border-b-2 transition ${activeTool === 'codon' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'}`}
+        >
+          📖 Bảng Mã Di Truyền
+        </button>
+        <button
+          onClick={() => setActiveTool('flashcards')}
+          className={`px-4 py-3 font-bold text-sm border-b-2 transition ${activeTool === 'flashcards' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'}`}
+        >
+          🎴 Thẻ Ghi Nhớ Flashcards
+        </button>
+      </div>
+
+      {activeTool === 'genetics' && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+          <h3 className="text-lg font-bold text-slate-800">Tính Tỉ Lệ Phép Lai Quy Luật Mendel (1-2 cặp gen)</h3>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Kiểu gen P1 (Mẹ):</label>
+              <select
+                value={parent1}
+                onChange={e => setParent1(e.target.value)}
+                className="w-full p-3 border rounded-xl font-mono font-bold text-sm outline-none"
+              >
+                <option value="AA">AA (Đồng hợp trội)</option>
+                <option value="Aa">Aa (Dị hợp 1 cặp)</option>
+                <option value="aa">aa (Đồng hợp lặn)</option>
+                <option value="AaBb">AaBb (Dị hợp 2 cặp)</option>
+                <option value="AABB">AABB</option>
+                <option value="aabb">aabb</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Kiểu gen P2 (Bố):</label>
+              <select
+                value={parent2}
+                onChange={e => setParent2(e.target.value)}
+                className="w-full p-3 border rounded-xl font-mono font-bold text-sm outline-none"
+              >
+                <option value="AA">AA (Đồng hợp trội)</option>
+                <option value="Aa">Aa (Dị hợp 1 cặp)</option>
+                <option value="aa">aa (Đồng hợp lặn)</option>
+                <option value="AaBb">AaBb (Dị hợp 2 cặp)</option>
+                <option value="AABB">AABB</option>
+                <option value="aabb">aabb</option>
+              </select>
+            </div>
+          </div>
+
+          {mendelResult && (
+            <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 space-y-3">
+              <h4 className="font-bold text-emerald-900 text-sm">Kết quả phân tích đời F1:</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {mendelResult.genotypeRatios.map((item, i) => (
+                  <div key={i} className="p-3 bg-white rounded-lg border border-emerald-200 text-center space-y-1">
+                    <p className="font-mono font-bold text-base text-emerald-800">{item.genotype}</p>
+                    <p className="text-xs text-slate-500 font-semibold">{item.ratio} ({item.percentage}%)</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTool === 'codon' && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="text-lg font-bold text-slate-800">Tra Cứu Bảng Mã Di Truyền (Codon $\rightarrow$ Amino Acid)</h3>
+            <div className="relative w-64">
+              <input
+                type="text"
+                placeholder="Tìm bộ ba (VD: AUG, UAA)..."
+                value={searchCodon}
+                onChange={e => setSearchCodon(e.target.value)}
+                className="w-full p-2 pl-8 border rounded-lg text-xs outline-none"
+              />
+              <Search className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {filteredGeneticCode.map((item, idx) => (
+              <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                <p className="font-bold text-xs text-emerald-800">{item.amino}</p>
+                <div className="flex flex-wrap gap-1">
+                  {item.codons.map(c => (
+                    <span key={c} className="font-mono text-[11px] font-bold bg-white px-2 py-0.5 rounded border border-slate-300">
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTool === 'flashcards' && (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 max-w-xl mx-auto space-y-6 text-center">
+          <h3 className="text-lg font-bold text-slate-800">Thẻ Ghi Nhớ Thuật Ngữ THPT</h3>
+
+          {currentCard ? (
+            <div
+              onClick={() => setIsFlipped(!isFlipped)}
+              className="min-h-[200px] p-8 bg-gradient-to-br from-emerald-600 to-teal-700 text-white rounded-2xl shadow-lg flex flex-col items-center justify-center cursor-pointer transition transform active:scale-95 space-y-3"
+            >
+              <span className="text-xs uppercase tracking-wider text-emerald-200 font-semibold">
+                {isFlipped ? 'Định nghĩa / Giải thích' : 'Thuật ngữ (Nhấn để lật thẻ)'}
+              </span>
+              <p className="text-xl font-bold">
+                {isFlipped ? currentCard.definition : currentCard.term}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">Không có thẻ ghi nhớ nào cho môn này.</p>
+          )}
+
+          {filteredFlashcards.length > 0 && (
+            <div className="flex items-center justify-between">
+              <button
+                disabled={flashcardIdx === 0}
+                onClick={() => { setFlashcardIdx(prev => prev - 1); setIsFlipped(false); }}
+                className="px-4 py-2 border rounded-lg text-xs font-semibold text-slate-600 disabled:opacity-40"
+              >
+                ← Thẻ trước
+              </button>
+              <span className="text-xs text-slate-500 font-mono">
+                {flashcardIdx + 1} / {filteredFlashcards.length}
+              </span>
+              <button
+                disabled={flashcardIdx === filteredFlashcards.length - 1}
+                onClick={() => { setFlashcardIdx(prev => prev + 1); setIsFlipped(false); }}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold disabled:opacity-40"
+              >
+                Thẻ tiếp →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
